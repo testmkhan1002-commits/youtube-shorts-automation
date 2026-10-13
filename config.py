@@ -52,7 +52,7 @@ OPENROUTER_FALLBACK_MODELS = [
     "openai/gpt-oss-120b:free",
     "openrouter/free", # Last resort: auto-route to any available free model
 ]
-PEXELS_API_BASE = "https://api.pexels.com/videos/search"
+PIXABAY_API_BASE = "https://api.pixabay.com/videos/search"
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
 YOUTUBE_TOKEN_URI = "https://oauth2.googleapis.com/token"
@@ -64,7 +64,7 @@ class Config:
 
     # API Keys
     openrouter_api_key: str = field(default="")
-    pexels_api_key: str = field(default="")
+    pixabay_api_key: str = field(default="")
     youtube_client_id: str = field(default="")
     youtube_client_secret: str = field(default="")
     youtube_refresh_token: str = field(default="")
@@ -77,7 +77,7 @@ class Config:
 
     def __post_init__(self):
         self.openrouter_api_key = os.environ.get("OPENROUTER_API_KEY", "")
-        self.pexels_api_key = os.environ.get("PEXELS_API_KEY", "")
+        self.pixabay_api_key = os.environ.get("PIXABAY_API_KEY", "")
         self.youtube_client_id = os.environ.get("YOUTUBE_CLIENT_ID", "")
         self.youtube_client_secret = os.environ.get("YOUTUBE_CLIENT_SECRET", "")
         self.youtube_refresh_token = os.environ.get("YOUTUBE_REFRESH_TOKEN", "")
@@ -92,7 +92,7 @@ class Config:
     def _validate(self):
         """Warn about missing critical keys."""
         missing = []
-        for key in ["openrouter_api_key", "pexels_api_key",
+        for key in ["openrouter_api_key", "pixabay_api_key",
                     "youtube_client_id", "youtube_client_secret",
                     "youtube_refresh_token"]:
             if not getattr(self, key):
@@ -108,7 +108,7 @@ class Config:
         return (
             f"Config("
             f"openrouter_api_key={mask(self.openrouter_api_key)}, "
-            f"pexels_api_key={mask(self.pexels_api_key)}, "
+            f"pixabay_api_key={mask(self.pixabay_api_key)}, "
             f"youtube_client_id={mask(self.youtube_client_id)}, "
             f"tts_language={self.tts_language}, "
             f"video_privacy={self.video_privacy}"
