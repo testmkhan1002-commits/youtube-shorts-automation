@@ -85,7 +85,7 @@ def run_pipeline(cfg: Config) -> None:
     #    to match exactly — eliminating A/V sync and relevance issues.
     #
     logger.info("\n🎬 STEP 2/7 — Downloading space background video...")
-    video_dl = VideoDownloader(api_key=cfg.pexels_api_key)
+    video_dl = VideoDownloader(api_key=cfg.pixabay_api_key)
     video_path, video_duration, video_description = video_dl.download_space_video(topic=topic)
     logger.info("Video ready: %s — duration: %.2fs", video_path, video_duration)
     logger.info("Video description: %s", video_description[:100] if video_description else "N/A")
