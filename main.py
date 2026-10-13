@@ -145,27 +145,36 @@ def run_pipeline(cfg: Config) -> None:
     logger.info("Tags:  %s", metadata["tags"])
 
     # ── Step 7: Upload to YouTube ─────────────────────────────────────────────
-    logger.info("\n📤 STEP 7/7 — Uploading to YouTube...")
-    uploader = YouTubeUploader(
-        client_id=cfg.youtube_client_id,
-        client_secret=cfg.youtube_client_secret,
-        refresh_token=cfg.youtube_refresh_token,
-    )
-    video_id = uploader.upload(
-        video_path=final_video_path,
-        title=metadata["title"],
-        description=metadata["description"],
-        tags=metadata["tags"],
-        category_id=cfg.video_category_id,
-        privacy_status=cfg.video_privacy,
-    )
+    dry_run = os.environ.get("DRY_RUN", "false").lower() == "true"
+
+    if dry_run:
+        logger.info("DRY_RUN=true — skipping YouTube upload.")
+        video_id = None
+    else:
+        logger.info("\n📤 STEP 7/7 — Uploading to YouTube...")
+        uploader = YouTubeUploader(
+            client_id=cfg.youtube_client_id,
+            client_secret=cfg.youtube_client_secret,
+            refresh_token=cfg.youtube_refresh_token,
+        )
+        video_id = uploader.upload(
+            video_path=final_video_path,
+            title=metadata["title"],
+            description=metadata["description"],
+            tags=metadata["tags"],
+            category_id=cfg.video_category_id,
+            privacy_status=cfg.video_privacy,
+        )
 
     logger.info("\n" + "=" * 60)
-    logger.info("✅ Pipeline complete!")
-    logger.info("🎉 YouTube Short published: https://www.youtube.com/watch?v=%s", video_id)
+    if dry_run:
+        logger.info("Dry run complete — no video uploaded.")
+        logger.info("Generated video file: %s", final_video_path)
+    else:
+        logger.info("Pipeline complete!")
+        logger.info("YouTube Short uploaded: https://www.youtube.com/watch?v=%s", video_id)
     logger.info("=" * 60)
-
-
+  
 def main():
     """Entry point — load config, run pipeline, handle top-level errors."""
     try:
