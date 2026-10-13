@@ -73,7 +73,7 @@ class Config:
     tts_language: str = field(default="en")
     tts_slow: bool = field(default=False)
     video_category_id: str = field(default="22")   # People & Blogs
-    video_privacy: str = field(default="public")
+    video_privacy: str = field(default="private")
 
     def __post_init__(self):
         self.openrouter_api_key = os.environ.get("OPENROUTER_API_KEY", "")
@@ -84,7 +84,7 @@ class Config:
         self.tts_language = os.environ.get("TTS_LANGUAGE", "en")
         self.tts_slow = os.environ.get("TTS_SLOW", "false").lower() == "true"
         self.video_category_id = os.environ.get("YT_CATEGORY_ID", "22")
-        self.video_privacy = os.environ.get("YT_PRIVACY", "public")
+        self.video_privacy = os.environ.get("YT_PRIVACY", "private")
 
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         self._validate()
