@@ -36,3 +36,5 @@ tenacity==8.3.0
 # Utilities
 tqdm==4.66.4
 pytrends==4.9.2
+
+edge-tts
