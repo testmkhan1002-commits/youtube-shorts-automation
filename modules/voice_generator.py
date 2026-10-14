@@ -1,58 +1,65 @@
 """
 modules/voice_generator.py
-Converts a script into an MP3 voiceover using gTTS (Google Text-to-Speech).
-
-gTTS is free, requires no API key, and produces natural-sounding speech.
+Generates natural-sounding neural voiceovers using Edge TTS.
 Output: output/voice.mp3
 """
 
+import asyncio
 import logging
 import os
-from gtts import gTTS
-from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 
+import edge_tts
 import config as cfg
 
 logger = logging.getLogger(__name__)
 
 
 class VoiceGenerator:
-    """Converts a script string to an MP3 file using gTTS."""
+    """Converts a script into a neural text-to-speech MP3."""
 
-    def __init__(self, language: str = "en", slow: bool = False):
+    def __init__(
+        self,
+        language: str = "en",
+        slow: bool = False,
+        voice: str = "en-US-GuyNeural",
+    ):
         self.language = language
         self.slow = slow
+        self.voice = voice
 
-    @retry(
-        retry=retry_if_exception_type(Exception),
-        stop=stop_after_attempt(3),
-        wait=wait_fixed(3),
-        reraise=True,
-    )
+    async def _generate_async(self, script: str, output_path: str) -> None:
+        rate = "-10%" if self.slow else "+0%"
+        communicate = edge_tts.Communicate(
+            text=script,
+            voice=self.voice,
+            rate=rate,
+        )
+        await communicate.save(output_path)
+
     def generate(self, script: str, output_path: str = cfg.VOICE_PATH) -> str:
-        """
-        Convert script text to speech and save as MP3.
-
-        Args:
-            script: The voiceover text.
-            output_path: Destination path for the MP3 file.
-
-        Returns:
-            Absolute path to the generated MP3 file.
-        """
+        """Generate an MP3 voiceover and return its absolute path."""
         if not script or not script.strip():
             raise ValueError("Script text is empty. Cannot generate voice.")
 
-        logger.info("Generating voiceover with gTTS (lang=%s, slow=%s)...", self.language, self.slow)
+        logger.info(
+            "Generating neural voiceover (voice=%s, slow=%s)...",
+            self.voice,
+            self.slow,
+        )
 
-        tts = gTTS(text=script, lang=self.language, slow=self.slow)
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        tts.save(output_path)
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
 
-        # Validate output
-        if not os.path.exists(output_path):
-            raise RuntimeError(f"gTTS did not create output file at: {output_path}")
+        try:
+            asyncio.run(self._generate_async(script.strip(), output_path))
+        except Exception as exc:
+            logger.error("Edge TTS voice generation failed: %s", exc)
+            raise
+
+        if not os.path.isfile(output_path) or os.path.getsize(output_path) == 0:
+            raise RuntimeError(f"Edge TTS did not create a valid file: {output_path}")
 
         size_kb = os.path.getsize(output_path) / 1024
-        logger.info("Voiceover saved to '%s' (%.1f KB).", output_path, size_kb)
-        return output_path
+        logger.info("Neural voiceover saved to '%s' (%.1f KB).", output_path, size_kb)
+        return os.path.abspath(output_path)
