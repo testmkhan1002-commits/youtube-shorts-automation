@@ -1,10 +1,9 @@
+
 """
 modules/subtitle_generator.py
-Generates time-synced subtitle chunks from a text script without
-the need for Speech-to-Text inference (like Whisper).
 
-Also provides `to_ffmpeg_drawtext()` to burn subtitles via FFmpeg
-`drawtext` filter — no ImageMagick needed.
+Generates readable, time-estimated subtitles and FFmpeg drawtext filters.
+Compatible with the existing VideoEditor interface.
 """
 
 import logging
@@ -13,48 +12,32 @@ from typing import List, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Characters that must be escaped in FFmpeg drawtext expressions
-_FFMPEG_ESCAPE = str.maketrans({
-    "'": "\u2019",    # replace ASCII apostrophe with typographic one
-    ":": "\\:",
-    "\\": "\\\\",
-    "%": "\\%",
-})
-
 
 class SubtitleGenerator:
-    """
-    Generates time-synced subtitle chunks from a text script.
-    Uses character-weighted timing (no Whisper / STT needed).
-    """
+    """Creates short caption chunks with estimated timestamps."""
 
     FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
     def __init__(self, wpm: int = 150):
-        self.wpm = wpm  # words per minute heuristic
+        self.wpm = max(1, wpm)
 
-    # ── Public API ─────────────────────────────────────────────────────────────
-
-    def generate(self, script_text: str, duration: float) -> List[Tuple[float, float, str]]:
+    def generate(
+        self, script_text: str, duration: float
+    ) -> List[Tuple[float, float, str]]:
         """
-        Split the text into phrases and estimate timestamps.
+        Return (start, end, caption) tuples.
 
-        Args:
-            script_text: Full voiceover text.
-            duration:    Total audio duration in seconds.
-
-        Returns:
-            List of (start_time, end_time, text_chunk) tuples.
+        Timing is estimated from text length, not actual audio alignment.
         """
-        logger.info(
-            "Generating subtitles using character-weighted timing for %.1fs audio.", duration
-        )
-
-        clean_text = re.sub(r"\s+", " ", script_text.strip())
-        if not clean_text:
+        if not script_text or not script_text.strip() or duration <= 0:
             return []
 
+        clean_text = re.sub(r"\s+", " ", script_text).strip()
         chunks = self._split_into_chunks(clean_text)
+
+        if not chunks:
+            return []
+
         return self._assign_timestamps(chunks, duration)
 
     def to_ffmpeg_drawtext(
@@ -62,116 +45,152 @@ class SubtitleGenerator:
         subtitles: List[Tuple[float, float, str]],
         video_width: int = 1080,
         video_height: int = 1920,
-        font_size: int = 60,
+        font_size: int = 52,
     ) -> str:
-        """
-        Convert subtitle list to an FFmpeg ``drawtext`` filter string.
-
-        Each phrase is rendered only during its time window using
-        ``enable='between(t,start,end)'``.  The result can be used
-        directly as the value passed to ``-vf`` in an FFmpeg command.
-
-        Args:
-            subtitles:    Output of generate().
-            video_width:  Target video width  (default 1080).
-            video_height: Target video height (default 1920).
-            font_size:    Font size in pixels (default 60).
-
-        Returns:
-            A single FFmpeg filter-graph string, e.g.
-            "drawtext=...,drawtext=..."
-        """
+        """Build an FFmpeg drawtext filter with readable caption styling."""
         if not subtitles:
             return ""
 
-        # y position: 80% down the frame (bottom area for Shorts)
-        y_pos = int(video_height * 0.80)
+        # Keep captions above the bottom interface overlay area.
+        y_pos = int(video_height * 0.72)
 
         parts = []
-        for start, end, text in subtitles:
-            safe_text = text.strip().translate(_FFMPEG_ESCAPE)
-            # Split long lines: wrap at ~30 chars
-            wrapped = self._wrap_text(safe_text, max_chars=30)
+
+        for start, end, caption in subtitles:
+            if end <= start:
+                continue
+
+            wrapped = self._wrap_text(caption, max_chars=25)
+            escaped_lines = []
+
+            for line in wrapped.split("\n"):
+                escaped_lines.append(self._escape_drawtext(line))
+
+            safe_text = r"\n".join(escaped_lines)
 
             entry = (
-                f"drawtext="
+                "drawtext="
                 f"fontfile={self.FONT_PATH}:"
-                f"text='{wrapped}':"
+                f"text='{safe_text}':"
+                f"expansion=none:"
                 f"fontsize={font_size}:"
-                f"fontcolor=white:"
-                f"bordercolor=black:"
-                f"borderw=3:"
-                f"x=(w-text_w)/2:"
+                "fontcolor=white:"
+                "borderw=2:"
+                "bordercolor=black:"
+                "box=1:"
+                "boxcolor=black@0.60:"
+                "boxborderw=14:"
+                "fix_bounds=1:"
+                "x=(w-text_w)/2:"
                 f"y={y_pos}:"
                 f"enable='between(t,{start:.3f},{end:.3f})'"
             )
+
             parts.append(entry)
 
-        logger.info("Built FFmpeg drawtext filter with %d subtitle entries.", len(parts))
+        logger.info("Created %d caption filters.", len(parts))
         return ",".join(parts)
 
-    # ── Private helpers ────────────────────────────────────────────────────────
-
-    def _split_into_chunks(self, clean_text: str) -> List[str]:
-        """Split text on sentence boundaries, then break long ones."""
-        sentences = re.split(r"(?<=[.!?])\s+", clean_text)
+    @staticmethod
+    def _split_into_chunks(text: str) -> List[str]:
+        """
+        Split narration into short, readable phrases.
+        Prefer sentence boundaries and keep captions to about 3–6 words.
+        """
+        sentences = re.split(r"(?<=[.!?])\s+", text)
         chunks: List[str] = []
-        for s in sentences:
-            if not s.strip():
+
+        for sentence in sentences:
+            words = sentence.strip().split()
+
+            if not words:
                 continue
-            words = s.split()
-            if len(words) > 6:
-                for i in range(0, len(words), 4):
-                    chunk = " ".join(words[i : i + 4])
-                    if chunk:
-                        chunks.append(chunk)
-            else:
-                chunks.append(s.strip())
+
+            current: List[str] = []
+
+            for word in words:
+                current.append(word)
+
+                # End a phrase after 4 words, or earlier at punctuation.
+                has_punctuation = bool(re.search(r"[,;:]$", word))
+
+                if len(current) >= 4 or has_punctuation:
+                    chunks.append(" ".join(current))
+                    current = []
+
+            if current:
+                chunks.append(" ".join(current))
+
         return chunks
 
+    @staticmethod
     def _assign_timestamps(
-        self, chunks: List[str], duration: float
+        chunks: List[str], duration: float
     ) -> List[Tuple[float, float, str]]:
-        """Distribute duration across chunks proportional to character count."""
-        total_chars = sum(len(c.replace(" ", "")) for c in chunks)
-        if total_chars == 0:
+        """Estimate phrase timing in proportion to the number of characters."""
+        weights = [max(1, len(re.sub(r"\s+", "", chunk))) for chunk in chunks]
+        total_weight = sum(weights)
+
+        if total_weight <= 0 or duration <= 0:
             return []
 
-        current_time = 0.0
         subtitles: List[Tuple[float, float, str]] = []
+        current_time = 0.0
 
-        for chunk in chunks:
-            chunk_chars = len(chunk.replace(" ", ""))
-            char_ratio = chunk_chars / total_chars
-            chunk_duration = duration * char_ratio
+        for index, (chunk, weight) in enumerate(zip(chunks, weights)):
+            start = current_time
 
-            start_time = current_time
-            end_time = min(start_time + chunk_duration, duration)
+            if index == len(chunks) - 1:
+                end = duration
+            else:
+                end = start + duration * weight / total_weight
 
-            if end_time > start_time:
-                subtitles.append((start_time, end_time, chunk))
-                current_time = end_time
+            if end > start:
+                subtitles.append((start, end, chunk))
+                current_time = end
 
-        # Ensure last chunk terminates exactly at duration
-        if subtitles:
-            last_start, _, last_text = subtitles[-1]
-            subtitles[-1] = (last_start, duration, last_text)
-
-        logger.info("Generated %d synced subtitle phrases.", len(subtitles))
         return subtitles
 
     @staticmethod
-    def _wrap_text(text: str, max_chars: int = 30) -> str:
-        """Wrap text at word boundaries; use FFmpeg line-break escape."""
+    def _wrap_text(text: str, max_chars: int = 25) -> str:
+        """Wrap captions into balanced lines at word boundaries."""
         words = text.split()
         lines: List[str] = []
         current = ""
+
         for word in words:
-            if current and len(current) + 1 + len(word) > max_chars:
+            candidate = f"{current} {word}".strip()
+
+            if current and len(candidate) > max_chars:
                 lines.append(current)
                 current = word
             else:
-                current = f"{current} {word}".strip()
+                current = candidate
+
         if current:
             lines.append(current)
-        return r"\n".join(lines)
+
+        # Limit each caption to two lines where practical.
+        if len(lines) > 2:
+            lines = [
+                " ".join(words[: len(words) // 2]),
+                " ".join(words[len(words) // 2 :]),
+            ]
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _escape_drawtext(text: str) -> str:
+        """Escape characters that can break an FFmpeg filter expression."""
+        replacements = {
+            "\\": r"\\",
+            "'": "’",
+            ":": r"\:",
+            "%": r"\%",
+            ",": r"\,",
+            "[": r"\[",
+            "]": r"\]",
+            ";": r"\;",
+        }
+
+        return "".join(replacements.get(char, char) for char in text)
