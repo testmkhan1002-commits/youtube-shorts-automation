@@ -183,7 +183,7 @@ class VideoEditor:
             bitrate=cfg.SHORTS_VIDEO_BITRATE,
             audio_bitrate=cfg.SHORTS_AUDIO_BITRATE,
             threads=2,
-            preset="ultrafast",
+            preset="medium",
             verbose=False,
             logger=None,
         )
@@ -243,7 +243,7 @@ class VideoEditor:
             "-i", input_path,
             "-vf", drawtext_filter,
             "-c:v", "libx264",
-            "-preset", "ultrafast",
+            "-preset", "medium",
             "-b:v", cfg.SHORTS_VIDEO_BITRATE,
             "-c:a", "copy",           # audio already encoded — just copy
             "-r", str(self.fps),
@@ -388,15 +388,13 @@ class VideoEditor:
         logger.info("Converting landscape clip (%dx%d) to vertical via blur-pad: %s", w, h, src_path)
         out_path = src_path.replace(".mp4", "_vertical.mp4")
 
-        # FFmpeg complex filter:
-        #   split → (a) blur + stretch to fill canvas, (b) scale to fit width
-        #   overlay (b) centred on (a)
+        # Fill the vertical frame with the source footage instead of placing
+        # a small sharp landscape strip over a heavily blurred background.
+        # This center-crop approach uses the full screen; some side content may
+        # be cropped from landscape footage.
         vf = (
-            "[0:v]split=2[blurred][orig];"
-            f"[blurred]scale={self.width}:{self.height}:force_original_aspect_ratio=increase,"
-            f"crop={self.width}:{self.height},boxblur=25:5[bg];"
-            f"[orig]scale={self.width}:-2[fg];"
-            "[bg][fg]overlay=(W-w)/2:(H-h)/2"
+            f"scale={self.width}:{self.height}:force_original_aspect_ratio=increase,"
+            f"crop={self.width}:{self.height},setsar=1"
         )
         cmd = [
             "ffmpeg", "-y", "-i", src_path,
